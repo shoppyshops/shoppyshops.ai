@@ -12,6 +12,8 @@ aiohttp = "^3.10.10"
 django = "^5.1.2"
 django-htmx = "^1.20.0"
 reloady = "^0.1.7"
+shopifyapi = "^12.6.0"
+python-dotenv = "^1.0.1"
 
 
 [build-system]

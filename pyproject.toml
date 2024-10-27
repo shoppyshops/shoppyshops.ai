@@ -10,6 +10,8 @@ python = "^3.10"
 asyncio = "^3.4.3"
 aiohttp = "^3.10.10"
 django = "^5.1.2"
+django-htmx = "^1.20.0"
+reloady = "^0.1.7"
 
 
 [build-system]

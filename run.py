@@ -31,6 +31,10 @@ class ShoppyShops:
     async def get_orders(self, first=100):
         return await self.client.get_orders(first)
 
+    async def get_order_fulfillments(self, order_id):
+        return await self.client.get_order_fulfillments(order_id)
+
+
 async def run():
     local_aussie_store = ShoppyShops(
         shopify_access_token=os.getenv("SHOPIFY_ACCESS_TOKEN"),
@@ -41,9 +45,26 @@ async def run():
     try:
         orders = await local_aussie_store.get_orders()
         for order in orders:
-            print(f"Order ID: {order.order_id}, Name: {order.name}, Email: {order.email}, Total Price: {order.total_price} {order.currency}")
+            print("================================================")
+            print(f"Order ID: {order.order_id}\n"
+                  f"Name: {order.name}\n"
+                  f"Email: {order.email}\n"
+                  f"Total Price: {order.total_price} {order.currency}")
+            fulfillments = await local_aussie_store.get_order_fulfillments(order.order_id)
+            print("--------------------------------")
+            if fulfillments:
+                for fulfillment in fulfillments:
+                    print(f"Fulfillment ID: {fulfillment.fulfillment_id} \n"
+                          f"Tracking Number: {fulfillment.tracking_number} \n"
+                          f"Tracking URL: {fulfillment.tracking_url}")
+            else:
+                print(f"No fulfillments found for order {order.order_id}")
     except Exception as e:
-        print(f"An error occurred: {e}")
+        print("--------------------------------")
+        print(f"    An error occurred while fetching orders: {str(e)}")
+        print(f"    Error type: {type(e).__name__}")
+        print(f"    Error details: {repr(e)}")
+        print("--------------------------------")
 
 if __name__ == "__main__":
     asyncio.run(run())

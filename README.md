@@ -10,6 +10,13 @@ Gen AI assisted management of Shopify, FB and related systems
 poetry shell
 poetry install
 ```
+## Environment
+
+```
+touch .env
+```
+
+Ask for the .env keys or set up your own.
 
 ## Usage
 

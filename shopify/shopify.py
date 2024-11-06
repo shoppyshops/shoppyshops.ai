@@ -1,22 +1,21 @@
 import aiohttp
-import os
-from dotenv import load_dotenv
 
-# Load environment variables
-load_dotenv()
 
 class Order:
-    def __init__(self, order_id, name, email, total_price, currency):
+    def __init__(self, order_id, name, email, total_price, currency, tags, note):
         self.order_id = order_id
         self.name = name
         self.email = email
         self.total_price = total_price
         self.currency = currency
+        self.tags = tags
+        self.note = note
 
 class OrderFulfillment:
-    def __init__(self, order_id, fulfillment_id, tracking_number, tracking_url):
+    def __init__(self, order_id, fulfillment_id, created_at, tracking_number, tracking_url):
         self.order_id = order_id
         self.fulfillment_id = fulfillment_id
+        self.created_at = created_at
         self.tracking_number = tracking_number
         self.tracking_url = tracking_url
 
@@ -71,6 +70,8 @@ class Shopify:
                                 currencyCode
                             }
                         }
+                        note
+                        tags
                     }
                 }
             }
@@ -87,7 +88,9 @@ class Shopify:
                 name=order_node['name'],
                 email=order_node['email'],
                 total_price=order_node['totalPriceSet']['shopMoney']['amount'],
-                currency=order_node['totalPriceSet']['shopMoney']['currencyCode']
+                currency=order_node['totalPriceSet']['shopMoney']['currencyCode'],
+                tags=order_node['tags'],
+                note=order_node['note']
             )
             for order_edge in orders
             for order_node in [order_edge['node']]
@@ -105,6 +108,7 @@ class Shopify:
                 fulfillments {
                     id
                     status
+                    createdAt
                     trackingInfo {
                         number
                         url
@@ -123,6 +127,7 @@ class Shopify:
             OrderFulfillment(
                 order_id=order_id,
                 fulfillment_id=fulfillment['id'],
+                created_at=fulfillment['createdAt'],
                 tracking_number=fulfillment['trackingInfo'][0]['number'] if fulfillment['trackingInfo'] else None,
                 tracking_url=fulfillment['trackingInfo'][0]['url'] if fulfillment['trackingInfo'] else None
             )

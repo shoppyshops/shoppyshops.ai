@@ -1,6 +1,10 @@
 import asyncio
 import os
 from shopify import Shopify
+from ebay import Ebay
+from dotenv import load_dotenv
+
+load_dotenv()
 
 class ShoppyShops:
     """
@@ -22,17 +26,18 @@ class ShoppyShops:
     - Xero
     """
     def __init__(self, shopify_access_token, shopify_url, api_version):
-        self.client = Shopify(
+        self.shopify = Shopify(
             shop_url=shopify_url, 
             access_token=shopify_access_token, 
             api_version=api_version
         )
+        self.ebay = Ebay()
 
     async def get_orders(self, first=100):
-        return await self.client.get_orders(first)
+        return await self.shopify.get_orders(first)
 
     async def get_order_fulfillments(self, order_id):
-        return await self.client.get_order_fulfillments(order_id)
+        return await self.shopify.get_order_fulfillments(order_id)
 
 
 async def run():
@@ -55,10 +60,16 @@ async def run():
             if fulfillments:
                 for fulfillment in fulfillments:
                     print(f"Fulfillment ID: {fulfillment.fulfillment_id} \n"
+                          f"Fulfillment Created At: {fulfillment.created_at} \n"
                           f"Tracking Number: {fulfillment.tracking_number} \n"
                           f"Tracking URL: {fulfillment.tracking_url}")
             else:
                 print(f"No fulfillments found for order {order.order_id}")
+                if "Ordered" in order.tags:
+                    print(f"Order has been ordered with eBay: {order.note}")
+                else:
+                    print(f"No supplier order found, ordering with eBay")
+                    await local_aussie_store.ebay.purchase_product(order)
     except Exception as e:
         print("--------------------------------")
         print(f"    An error occurred while fetching orders: {str(e)}")

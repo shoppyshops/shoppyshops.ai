@@ -14,6 +14,8 @@ django-htmx = "^1.20.0"
 reloady = "^0.1.7"
 python-dotenv = "^1.0.1"
 ipdb = "^0.13.13"
+django-livereload-server = "^0.5.1"
+daphne = "^4.1.2"
 
 
 [build-system]

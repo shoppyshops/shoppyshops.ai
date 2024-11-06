@@ -1,0 +1,48 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>{% block title %}Shoppy Shops{% endblock %}</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="light dark">
+    <link rel="icon" type="image/x-icon" href="{% static 'img/favicon.ico' %}">
+    <script src="{% static 'js/htmx.min.js' %}"></script>
+    <script src="{% static 'js/htmx.ext.sse.js' %}"></script>
+    <style>
+        :root {
+            color-scheme: light dark;
+            --text-color: #1a1a1a;
+            --bg-color: #eee;
+            --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --text-color: #eee;
+                --bg-color: #1a1a1a;
+            }
+        }
+        body {
+            color: var(--text-color);
+            background-color: var(--bg-color);
+            font-family: var(--font-family);
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <nav>
+            <a href="{% url 'index' %}">Shoppy Shops</a>
+        </nav>
+    </header>
+
+    <main>
+        {% block content %}
+        {% endblock %}
+    </main>
+
+    <footer>
+        <p>&copy; {% now "Y" %} Shoppy Shops</p>
+    </footer>
+</body>
+</html>

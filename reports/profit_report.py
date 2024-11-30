@@ -1,6 +1,7 @@
 import os
 import sys
 from pathlib import Path
+import argparse
 
 # Add the project root to the Python path
 project_root = str(Path(__file__).resolve().parent.parent)
@@ -111,6 +112,11 @@ async def generate_profit_report(days_back=180):
     
     total_all_costs = total_cost + total_shipping_cost
     
+    # Calculate total revenue for all orders, regardless of eBay links
+    total_all_revenue = Decimal('0.00')
+    async for shopify_order in shopify_orders.aiterator():
+        total_all_revenue += shopify_order.total_price
+    
     # Print summary
     print("\nSummary Report")
     print("="*50)
@@ -120,13 +126,17 @@ async def generate_profit_report(days_back=180):
     print(f"Orders Missing eBay Links: {total_orders - orders_with_ebay}")
     
     print("\nFinancials:")
-    print(f"Total Revenue: ${total_revenue:.2f}")
+    print(f"Total Revenue (All Orders): ${total_all_revenue:.2f}")
+    print(f"Total Revenue (Fulfilled Orders): ${total_revenue:.2f}")
     print(f"Total Item Cost: ${total_cost:.2f}")
     print(f"Total Shipping Cost: ${total_shipping_cost:.2f}")
     print(f"Total Actual Shipping: ${total_actual_shipping:.2f}")
     print(f"Total All Costs: ${total_all_costs:.2f}")
     print(f"Total Profit: ${total_profit:.2f}")
-    print(f"Overall Margin: {(total_profit / total_revenue * 100):.1f}% (profit/revenue)")
+    if total_revenue > 0:
+        print(f"Overall Margin: {(total_profit / total_revenue * 100):.1f}% (profit/revenue)")
+    else:
+        print("Overall Margin: N/A (no fulfilled orders)")
     
     print("\nAverages (for orders with eBay links):")
     print(f"Average Revenue: ${avg_revenue:.2f}")
@@ -137,8 +147,16 @@ async def generate_profit_report(days_back=180):
     print(f"Average Margin: {avg_margin:.1f}%")
     
     print("\nShipping Analysis:")
-    print(f"Shipping Cost vs Revenue: {(total_actual_shipping / total_revenue * 100):.4f}%")
-    print(f"Shipping Cost vs Profit: {(total_actual_shipping / total_profit * 100):.4f}%")
+    if total_revenue > 0:
+        print(f"Shipping Cost vs Revenue: {(total_actual_shipping / total_revenue * 100):.4f}%")
+    else:
+        print("Shipping Cost vs Revenue: N/A (no revenue)")
+        
+    if total_profit > 0:
+        print(f"Shipping Cost vs Profit: {(total_actual_shipping / total_profit * 100):.4f}%")
+    else:
+        print("Shipping Cost vs Profit: N/A (no profit)")
+        
     if total_shipping_cost > 0:
         print(f"Actual vs Charged Shipping: {(total_actual_shipping / total_shipping_cost * 100):.4f}%")
         print(f"Average Shipping Difference: ${(total_actual_shipping - total_shipping_cost) / orders_with_ebay:.2f}")
@@ -168,6 +186,12 @@ async def generate_profit_report(days_back=180):
         print(f"Orders with Actual Shipping: {len(actual_shipping_costs)}")
 
 async def run():
+    # Add argument parsing
+    parser = argparse.ArgumentParser(description='Generate profit report')
+    parser.add_argument('--days', type=int, default=180,
+                      help='Number of days to look back (default: 180)')
+    args = parser.parse_args()
+    
     # Capture output
     output = StringIO()
     original_stdout = sys.stdout
@@ -185,14 +209,13 @@ async def run():
     sys.stdout = TeeOutput()
     
     try:
-        # Generate report for last 180 days by default
-        await generate_profit_report(days_back=180)
+        # Use the days argument from command line
+        await generate_profit_report(days_back=args.days)
         
     except Exception as e:
         print(f"Error generating report: {str(e)}")
         print(f"Error type: {type(e).__name__}")
     finally:
-        # Restore stdout
         sys.stdout = original_stdout
         output_text = output.getvalue()
         

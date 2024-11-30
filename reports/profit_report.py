@@ -47,6 +47,10 @@ async def generate_profit_report(days_back=180):
     print("\nDetailed Order Analysis:")
     print("="*50)
     
+    # Add lists to track shipping costs
+    actual_shipping_costs = []
+    charged_shipping_costs = []
+    
     async for shopify_order in shopify_orders.aiterator():
         print(f"\nShopify Order: {shopify_order.name}")
         print(f"Created: {shopify_order.created_at}")
@@ -69,6 +73,12 @@ async def generate_profit_report(days_back=180):
                     order_cost += item.price * item.quantity
                     order_shipping += item.shipping_cost
                     order_actual_shipping += item.actual_shipping_cost
+            
+            # Track shipping costs when they are non-zero
+            if order_shipping > 0:
+                charged_shipping_costs.append(float(order_shipping))
+            if order_actual_shipping > 0:
+                actual_shipping_costs.append(float(order_actual_shipping))
             
             order_total_cost = order_cost + order_shipping
             order_profit = shopify_order.total_price - order_total_cost
@@ -127,10 +137,35 @@ async def generate_profit_report(days_back=180):
     print(f"Average Margin: {avg_margin:.1f}%")
     
     print("\nShipping Analysis:")
-    print(f"Shipping Cost vs Revenue: {(total_shipping_cost / total_revenue * 100):.1f}%")
+    print(f"Shipping Cost vs Revenue: {(total_actual_shipping / total_revenue * 100):.4f}%")
+    print(f"Shipping Cost vs Profit: {(total_actual_shipping / total_profit * 100):.4f}%")
     if total_shipping_cost > 0:
-        print(f"Actual vs Charged Shipping: {(total_actual_shipping / total_shipping_cost * 100):.1f}%")
+        print(f"Actual vs Charged Shipping: {(total_actual_shipping / total_shipping_cost * 100):.4f}%")
         print(f"Average Shipping Difference: ${(total_actual_shipping - total_shipping_cost) / orders_with_ebay:.2f}")
+    
+    if charged_shipping_costs:
+        charged_shipping_costs.sort()
+        median_idx = len(charged_shipping_costs) // 2
+        median_charged = (charged_shipping_costs[median_idx] + charged_shipping_costs[~median_idx]) / 2
+        
+        print("\nCharged Shipping Statistics:")
+        print(f"Highest Charged: ${max(charged_shipping_costs):.2f}")
+        print(f"Lowest Charged: ${min(charged_shipping_costs):.2f}")
+        print(f"Median Charged: ${median_charged:.2f}")
+        print(f"Average Charged: ${sum(charged_shipping_costs) / len(charged_shipping_costs):.2f}")
+        print(f"Orders with Charged Shipping: {len(charged_shipping_costs)}")
+    
+    if actual_shipping_costs:
+        actual_shipping_costs.sort()
+        median_idx = len(actual_shipping_costs) // 2
+        median_actual = (actual_shipping_costs[median_idx] + actual_shipping_costs[~median_idx]) / 2
+        
+        print("\nActual Shipping Statistics:")
+        print(f"Highest Actual: ${max(actual_shipping_costs):.2f}")
+        print(f"Lowest Actual: ${min(actual_shipping_costs):.2f}")
+        print(f"Median Actual: ${median_actual:.2f}")
+        print(f"Average Actual: ${sum(actual_shipping_costs) / len(actual_shipping_costs):.2f}")
+        print(f"Orders with Actual Shipping: {len(actual_shipping_costs)}")
 
 async def run():
     # Capture output

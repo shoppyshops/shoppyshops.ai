@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 from decimal import Decimal
 from django.utils import timezone
 import re
+import httpx
 
 from shopify.models import ShopifyOrder
 from ebay.models import EbayOrder, EbayOrderItem
@@ -166,9 +167,7 @@ class ShoppyShops:
             print(f"Error details: {repr(e)}")
 
 async def test_order_sync(shopify_client, ebay_client, start_order: int = None):
-    """
-    Process all orders from latest down to #1000, storing Shopify orders and their linked eBay orders in the DB
-    """
+    """Process all orders from latest down to #1000, storing Shopify orders and their linked eBay orders in the DB"""
     try:
         if start_order:
             print(f"\nStarting from order #{start_order}...")
@@ -189,15 +188,13 @@ async def test_order_sync(shopify_client, ebay_client, start_order: int = None):
         orders_with_ebay = 0
         ebay_orders_found = 0
         
-        while current_num >= 1000:  # Continue until we reach #1000
+        while current_num >= 1000:
             print(f"\n{'='*50}")
             print(f"Processing order #{current_num}...")
             
             order = await shopify_client.get_order(f"#{current_num}")
             if order:
                 print(f"Found Shopify order {order.name}")
-                print(f"Price: {order.total_price} {order.currency}")
-                print(f"Created at: {order.created_at}")
                 
                 # Store Shopify order in DB
                 db_shopify_order, created = await ShopifyOrder.objects.aupdate_or_create(
@@ -211,24 +208,27 @@ async def test_order_sync(shopify_client, ebay_client, start_order: int = None):
                         'created_at': timezone.datetime.fromisoformat(order.created_at.replace('Z', '+00:00'))
                     }
                 )
-                print(f"{'Created' if created else 'Updated'} Shopify order in DB")
                 
                 if order.note:
-                    print(f"Notes: {order.note}")
-                    # Look for eBay order numbers
+                    # Find all eBay order IDs
                     ebay_order_ids = re.findall(r'\b\d{2}-\d{5}-\d{5}\b', order.note)
                     if ebay_order_ids:
-                        orders_with_ebay += 1
                         print(f"\nFound eBay order IDs: {ebay_order_ids}")
                         
-                        # Fetch and store each eBay order
-                        for ebay_order_id in ebay_order_ids:
-                            print(f"\nFetching eBay order: {ebay_order_id}")
-                            ebay_order = await ebay_client.get_order_by_id(ebay_order_id)
+                        # Fetch all eBay orders in parallel
+                        ebay_orders = await asyncio.gather(
+                            *[ebay_client.get_order_by_id(ebay_id) for ebay_id in ebay_order_ids],
+                            return_exceptions=True
+                        )
+                        
+                        # Process results
+                        for ebay_id, ebay_order in zip(ebay_order_ids, ebay_orders):
+                            if isinstance(ebay_order, Exception):
+                                print(f"Error fetching eBay order {ebay_id}: {str(ebay_order)}")
+                                continue
                             
                             if ebay_order:
-                                ebay_orders_found += 1
-                                print(f"Found eBay order: {ebay_order['title']}")
+                                print(f"Processing eBay order: {ebay_order['title']}")
                                 
                                 # Store eBay order in DB
                                 db_ebay_order, created = await EbayOrder.objects.aupdate_or_create(
@@ -242,7 +242,6 @@ async def test_order_sync(shopify_client, ebay_client, start_order: int = None):
                                         'shopify_order': db_shopify_order  # Link to Shopify order
                                     }
                                 )
-                                print(f"{'Created' if created else 'Updated'} eBay order in DB")
                                 
                                 # Create or update order item
                                 await EbayOrderItem.objects.aupdate_or_create(
@@ -258,20 +257,9 @@ async def test_order_sync(shopify_client, ebay_client, start_order: int = None):
                                         'actual_shipping_cost': Decimal(str(ebay_order.get('actual_shipping_cost', '0.00')))
                                     }
                                 )
-                            else:
-                                print(f"Could not find eBay order: {ebay_order_id}")
-                    else:
-                        print("No eBay order IDs found in notes")
-                else:
-                    print("No notes found")
-            else:
-                print(f"No order found for #{current_num}")
             
             current_num -= 1
-            orders_checked += 1
-            
-            # Add a small delay between requests to avoid rate limiting
-            await asyncio.sleep(0.5)
+            # Removed sleep delay since we're now running in parallel
             
         # Print final summary
         print(f"\n{'='*50}")
@@ -304,34 +292,27 @@ async def run():
     sys.stdout = TeeOutput()
     
     try:
-        # Load credentials
         load_dotenv()
         
-        # Debug: Print raw environment variables
-        print("\nDebug - Raw eBay credentials:")
-        print(f"EBAY_APP_ID: {os.getenv('EBAY_APP_ID')}")
-        print(f"EBAY_DEV_ID: {os.getenv('EBAY_DEV_ID')}")
-        print(f"EBAY_CERT_ID: {os.getenv('EBAY_CERT_ID')}")
-        print(f"EBAY_USER_TOKEN: {os.getenv('EBAY_USER_TOKEN')}")
-        
-        # Initialize clients
-        shopify_client = Shopify(
-            access_token=os.getenv('SHOPIFY_ACCESS_TOKEN'),
-            shop_url=os.getenv('SHOPIFY_URL'),
-            api_version=os.getenv('SHOPIFY_API_VERSION')
-        )
-        
-        ebay_client = Ebay(
-            app_id=os.getenv('EBAY_PROD_APP_ID'),
-            dev_id=os.getenv('EBAY_DEV_ID'),
-            cert_id=os.getenv('EBAY_PROD_CERT_ID'),
-            user_token=os.getenv('LOCAL_AUSSIE_STORE_EBAY_USER_TOKEN'),
-            sandbox=False
-        )
-        
-        # No need to connect anymore since we create new sessions per request
-        await test_order_sync(shopify_client, ebay_client)
-        
+        async with httpx.AsyncClient() as shopify_client, httpx.AsyncClient() as ebay_client:
+            shopify = Shopify(
+                access_token=os.getenv('SHOPIFY_ACCESS_TOKEN'),
+                shop_url=os.getenv('SHOPIFY_URL'),
+                api_version=os.getenv('SHOPIFY_API_VERSION'),
+                client=shopify_client
+            )
+            
+            ebay = Ebay(
+                app_id=os.getenv('EBAY_PROD_APP_ID'),
+                dev_id=os.getenv('EBAY_DEV_ID'),
+                cert_id=os.getenv('EBAY_PROD_CERT_ID'),
+                user_token=os.getenv('LOCAL_AUSSIE_STORE_EBAY_USER_TOKEN'),
+                sandbox=False,
+                client=ebay_client
+            )
+            
+            await test_order_sync(shopify, ebay)
+    
     except Exception as e:
         print(f"Error in run: {str(e)}")
         print(f"Error type: {type(e).__name__}")

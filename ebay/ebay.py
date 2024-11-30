@@ -2,12 +2,13 @@ import os
 import sys
 import xml.etree.ElementTree as ET
 import asyncio
-import aiohttp
+import httpx
 from decimal import Decimal
 from datetime import datetime
+from typing import Optional, List, Dict, Any
 
 class Ebay:
-    def __init__(self, app_id=None, dev_id=None, cert_id=None, user_token=None, sandbox=False):
+    def __init__(self, app_id=None, dev_id=None, cert_id=None, user_token=None, sandbox=False, client=None):
         """Initialize eBay API client"""
         self.sandbox = sandbox
         
@@ -17,6 +18,10 @@ class Ebay:
         self.cert_id = cert_id or os.getenv('EBAY_PROD_CERT_ID')
         self.user_token = user_token or os.getenv('LOCAL_AUSSIE_STORE_EBAY_USER_TOKEN')
         
+        # Initialize HTTP client
+        self.client = client or httpx.AsyncClient(timeout=30.0)
+        self.url = 'https://api.ebay.com/ws/api.dll' if not self.sandbox else 'https://api.sandbox.ebay.com/ws/api.dll'
+        
         # Debug output
         print("Debug - eBay credentials loaded:")
         print(f"App ID: {'Set' if self.app_id else 'Missing'}")
@@ -24,16 +29,23 @@ class Ebay:
         print(f"Cert ID: {'Set' if self.cert_id else 'Missing'}")
         print(f"User Token: {'Set' if self.user_token else 'Missing'}")
 
-    async def get_order_by_id(self, order_id):
+    async def __aenter__(self):
+        if not self.client:
+            self.client = httpx.AsyncClient(timeout=30.0)
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        if self.client and not hasattr(self.client, '_is_external'):
+            await self.client.aclose()
+
+    async def get_order_by_id(self, order_id: str) -> Optional[Dict[str, Any]]:
         """Get a specific eBay order by ID using the Trading API"""
         if not self.user_token:
             print("Missing eBay user token!")
             return None
 
-        url = 'https://api.ebay.com/ws/api.dll' if not self.sandbox else 'https://api.sandbox.ebay.com/ws/api.dll'
-        
         headers = {
-            'X-EBAY-API-SITEID': '15',  # Australia site ID
+            'X-EBAY-API-SITEID': '15',
             'X-EBAY-API-COMPATIBILITY-LEVEL': '967',
             'X-EBAY-API-CALL-NAME': 'GetOrders',
             'X-EBAY-API-IAF-TOKEN': self.user_token,
@@ -53,90 +65,77 @@ class Ebay:
             <IncludeNotes>true</IncludeNotes>
         </GetOrdersRequest>"""
 
-        max_retries = 3
-        retry_delay = 1  # seconds
-        
-        for attempt in range(max_retries):
+        for attempt in range(3):
             try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.post(url, headers=headers, data=xml_request) as response:
-                        response_text = await response.text()
-                        print(f"eBay API Response Status: {response.status}")
-                        
-                        if response.status != 200:
-                            print(f"eBay API Error: {response_text}")
-                            return None
+                response = await self.client.post(
+                    self.url,
+                    headers=headers,
+                    content=xml_request
+                )
+                response.raise_for_status()
+                # Parse XML response
+                root = ET.fromstring(response.text)
+                # Define namespace
+                ns = {'ns': 'urn:ebay:apis:eBLBaseComponents'}
+                
+                # Check for errors
+                ack = root.find('.//ns:Ack', ns)
+                if ack is not None and ack.text != 'Success':
+                    error = root.find('.//ns:Errors/ns:LongMessage', ns)
+                    if error is not None:
+                        print(f"eBay API Error: {error.text}")
+                    return None
 
-                        # Parse XML response
-                        root = ET.fromstring(response_text)
-                        # Define namespace
-                        ns = {'ns': 'urn:ebay:apis:eBLBaseComponents'}
-                        
-                        # Check for errors
-                        ack = root.find('.//ns:Ack', ns)
-                        if ack is not None and ack.text != 'Success':
-                            error = root.find('.//ns:Errors/ns:LongMessage', ns)
-                            if error is not None:
-                                print(f"eBay API Error: {error.text}")
-                            return None
+                # Find orders
+                orders = root.findall('.//ns:OrderArray/ns:Order', ns)
+                print(f"Debug - Found {len(orders)} orders")
+                
+                if not orders:
+                    print("No orders found in response")
+                    return None
 
-                        # Find orders
-                        orders = root.findall('.//ns:OrderArray/ns:Order', ns)
-                        print(f"Debug - Found {len(orders)} orders")
-                        
-                        if not orders:
-                            print("No orders found in response")
-                            return None
+                # Find matching order
+                order = None
+                for o in orders:
+                    order_id_elem = o.find('ns:OrderID', ns)
+                    if order_id_elem is not None:
+                        print(f"Debug - Found order ID: {order_id_elem.text}")
+                        if order_id_elem.text == order_id:
+                            order = o
+                            break
 
-                        # Find matching order
-                        order = None
-                        for o in orders:
-                            order_id_elem = o.find('ns:OrderID', ns)
-                            if order_id_elem is not None:
-                                print(f"Debug - Found order ID: {order_id_elem.text}")
-                                if order_id_elem.text == order_id:
-                                    order = o
-                                    break
+                if order is None:
+                    print(f"Order {order_id} not found in response")
+                    return None
 
-                        if order is None:
-                            print(f"Order {order_id} not found in response")
-                            return None
+                # Get the first transaction
+                transaction = order.find('.//ns:TransactionArray/ns:Transaction', ns)
+                if transaction is None:
+                    print("No transaction found in order")
+                    return None
 
-                        # Get the first transaction
-                        transaction = order.find('.//ns:TransactionArray/ns:Transaction', ns)
-                        if transaction is None:
-                            print("No transaction found in order")
-                            return None
-
-                        # Extract order details
-                        return {
-                            'order_id': self._get_text(order, 'OrderID', ns),
-                            'status': self._get_text(order, 'OrderStatus', ns),
-                            'total': self._get_text(order, 'Total', ns),
-                            'created_at': self._get_text(order, 'CreatedTime', ns),
-                            'currency': self._get_text(order, 'Total', ns, '@currencyID', 'AUD'),
-                            'title': self._get_text(transaction, 'Item/Title', ns),
-                            'item_id': self._get_text(transaction, 'Item/ItemID', ns),
-                            'seller_id': self._get_text(order, 'SellerUserID', ns),
-                            'transaction_id': self._get_text(transaction, 'TransactionID', ns),
-                            'price': self._get_text(transaction, 'TransactionPrice', ns),
-                            'quantity': self._get_text(transaction, 'QuantityPurchased', ns, default='1'),
-                            'shipping_cost': self._get_text(transaction, 'ShippingServiceSelected/ShippingServiceCost', ns, default='0.00'),
-                            'actual_shipping_cost': self._get_text(transaction, 'ActualShippingCost', ns, default='0.00')
-                        }
-                        
-            except aiohttp.ClientError as e:
-                print(f"Network error: {str(e)}")
-                if attempt < max_retries - 1:
-                    print(f"Retrying in {retry_delay} seconds...")
-                    await asyncio.sleep(retry_delay)
-                    retry_delay *= 2
+                # Extract order details
+                return {
+                    'order_id': self._get_text(order, 'OrderID', ns),
+                    'status': self._get_text(order, 'OrderStatus', ns),
+                    'total': self._get_text(order, 'Total', ns),
+                    'created_at': self._get_text(order, 'CreatedTime', ns),
+                    'currency': self._get_text(order, 'Total', ns, '@currencyID', 'AUD'),
+                    'title': self._get_text(transaction, 'Item/Title', ns),
+                    'item_id': self._get_text(transaction, 'Item/ItemID', ns),
+                    'seller_id': self._get_text(order, 'SellerUserID', ns),
+                    'transaction_id': self._get_text(transaction, 'TransactionID', ns),
+                    'price': self._get_text(transaction, 'TransactionPrice', ns),
+                    'quantity': self._get_text(transaction, 'QuantityPurchased', ns, default='1'),
+                    'shipping_cost': self._get_text(transaction, 'ShippingServiceSelected/ShippingServiceCost', ns, default='0.00'),
+                    'actual_shipping_cost': self._get_text(transaction, 'ActualShippingCost', ns, default='0.00')
+                }
+                
+            except httpx.HTTPError as e:
+                print(f"HTTP error: {str(e)}")
+                if attempt < 2:
+                    await asyncio.sleep(2 ** attempt)
                     continue
-                return None
-                    
-            except Exception as e:
-                print(f"Error processing eBay order: {str(e)}")
-                print(f"Error type: {type(e).__name__}")
                 return None
                 
         print(f"Could not find eBay order: {order_id}")

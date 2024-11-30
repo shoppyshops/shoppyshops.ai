@@ -37,7 +37,7 @@ class LineItem:
         self.variant_title = variant_title
 
 class Shopify:
-    def __init__(self, shop_url, access_token, api_version):
+    def __init__(self, shop_url, access_token, api_version, client=None):
         self.shop_url = shop_url
         self.access_token = access_token
         self.api_version = api_version
@@ -46,9 +46,19 @@ class Shopify:
             "Content-Type": "application/json",
             "X-Shopify-Access-Token": self.access_token
         }
+        self.client = client or httpx.AsyncClient(timeout=30.0)
 
         if not self.shop_url or not self.access_token:
             raise ValueError("Shop URL and Access Token must be provided.")
+
+    async def __aenter__(self):
+        if not self.client:
+            self.client = httpx.AsyncClient(timeout=30.0)
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        if self.client and not hasattr(self.client, '_is_external'):
+            await self.client.aclose()
 
     async def execute_graphql(self, query, variables):
         return await self._post_request({"query": query, "variables": variables})
@@ -76,15 +86,14 @@ class Shopify:
 
     async def _make_request(self, payload):
         """Actually perform the HTTP request"""
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                self.graphql_endpoint,
-                json=payload,
-                headers=self.headers
-            )
-            if response.status_code != 200:
-                raise Exception(f"Request failed with status {response.status_code}: {response.text}")
-            return response.json()
+        response = await self.client.post(
+            self.graphql_endpoint,
+            json=payload,
+            headers=self.headers
+        )
+        if response.status_code != 200:
+            raise Exception(f"Request failed with status {response.status_code}: {response.text}")
+        return response.json()
 
     async def get_orders(self, first=200):
         print(f"Querying Shopify for {first} orders...")

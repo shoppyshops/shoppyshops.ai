@@ -253,7 +253,9 @@ async def test_order_sync(shopify_client, ebay_client, start_order: int = None):
                                         'price': Decimal(str(ebay_order['price'])),
                                         'quantity': ebay_order.get('quantity', 1),
                                         'seller_id': ebay_order.get('seller_id', 'unknown'),
-                                        'transaction_id': ebay_order.get('transaction_id', '')
+                                        'transaction_id': ebay_order.get('transaction_id', ''),
+                                        'shipping_cost': Decimal(str(ebay_order.get('shipping_cost', '0.00'))),
+                                        'actual_shipping_cost': Decimal(str(ebay_order.get('actual_shipping_cost', '0.00')))
                                     }
                                 )
                             else:
@@ -328,7 +330,7 @@ async def run():
         )
         
         # No need to connect anymore since we create new sessions per request
-        await test_order_sync(shopify_client, ebay_client, start_order=1102)
+        await test_order_sync(shopify_client, ebay_client)
         
     except Exception as e:
         print(f"Error in run: {str(e)}")

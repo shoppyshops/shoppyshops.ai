@@ -120,7 +120,9 @@ class Ebay:
                             'seller_id': self._get_text(order, 'SellerUserID', ns),
                             'transaction_id': self._get_text(transaction, 'TransactionID', ns),
                             'price': self._get_text(transaction, 'TransactionPrice', ns),
-                            'quantity': self._get_text(transaction, 'QuantityPurchased', ns, default='1')
+                            'quantity': self._get_text(transaction, 'QuantityPurchased', ns, default='1'),
+                            'shipping_cost': self._get_text(transaction, 'ShippingServiceSelected/ShippingServiceCost', ns, default='0.00'),
+                            'actual_shipping_cost': self._get_text(transaction, 'ActualShippingCost', ns, default='0.00')
                         }
                         
             except aiohttp.ClientError as e:

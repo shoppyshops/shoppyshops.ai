@@ -62,7 +62,6 @@ class Ebay:
                     async with session.post(url, headers=headers, data=xml_request) as response:
                         response_text = await response.text()
                         print(f"eBay API Response Status: {response.status}")
-                        print(f"eBay API Response: {response_text}")  # Debug output
                         
                         if response.status != 200:
                             print(f"eBay API Error: {response_text}")
@@ -70,40 +69,58 @@ class Ebay:
 
                         # Parse XML response
                         root = ET.fromstring(response_text)
+                        # Define namespace
+                        ns = {'ns': 'urn:ebay:apis:eBLBaseComponents'}
                         
                         # Check for errors
-                        ack = root.find('.//Ack')
+                        ack = root.find('.//ns:Ack', ns)
                         if ack is not None and ack.text != 'Success':
-                            error = root.find('.//Errors/LongMessage')
+                            error = root.find('.//ns:Errors/ns:LongMessage', ns)
                             if error is not None:
                                 print(f"eBay API Error: {error.text}")
                             return None
 
-                        # Find order
-                        order = root.find('.//OrderArray/Order')
-                        if order is None:
-                            print("No order found in response")
+                        # Find orders
+                        orders = root.findall('.//ns:OrderArray/ns:Order', ns)
+                        print(f"Debug - Found {len(orders)} orders")
+                        
+                        if not orders:
+                            print("No orders found in response")
                             return None
 
-                        # Extract transaction details
-                        transaction = order.find('.//TransactionArray/Transaction')
+                        # Find matching order
+                        order = None
+                        for o in orders:
+                            order_id_elem = o.find('ns:OrderID', ns)
+                            if order_id_elem is not None:
+                                print(f"Debug - Found order ID: {order_id_elem.text}")
+                                if order_id_elem.text == order_id:
+                                    order = o
+                                    break
+
+                        if order is None:
+                            print(f"Order {order_id} not found in response")
+                            return None
+
+                        # Get the first transaction
+                        transaction = order.find('.//ns:TransactionArray/ns:Transaction', ns)
                         if transaction is None:
                             print("No transaction found in order")
                             return None
 
                         # Extract order details
                         return {
-                            'order_id': order_id,
-                            'status': self._get_text(transaction, 'Status/PaymentStatus'),
-                            'total': self._get_text(transaction, 'TotalPrice'),
-                            'created_at': self._get_text(order, 'CreatedTime'),
-                            'currency': 'AUD',  # Default for Australian orders
-                            'title': self._get_text(transaction, 'Item/Title'),
-                            'item_id': self._get_text(transaction, 'Item/ItemID'),
-                            'seller_id': self._get_text(transaction, 'Seller/UserID'),
-                            'transaction_id': self._get_text(transaction, 'TransactionID'),
-                            'price': self._get_text(transaction, 'TransactionPrice'),
-                            'quantity': self._get_text(transaction, 'QuantityPurchased', '1')
+                            'order_id': self._get_text(order, 'OrderID', ns),
+                            'status': self._get_text(order, 'OrderStatus', ns),
+                            'total': self._get_text(order, 'Total', ns),
+                            'created_at': self._get_text(order, 'CreatedTime', ns),
+                            'currency': self._get_text(order, 'Total', ns, '@currencyID', 'AUD'),
+                            'title': self._get_text(transaction, 'Item/Title', ns),
+                            'item_id': self._get_text(transaction, 'Item/ItemID', ns),
+                            'seller_id': self._get_text(order, 'SellerUserID', ns),
+                            'transaction_id': self._get_text(transaction, 'TransactionID', ns),
+                            'price': self._get_text(transaction, 'TransactionPrice', ns),
+                            'quantity': self._get_text(transaction, 'QuantityPurchased', ns, default='1')
                         }
                         
             except aiohttp.ClientError as e:
@@ -122,8 +139,18 @@ class Ebay:
                 
         print(f"Could not find eBay order: {order_id}")
         return None
-            
-    def _get_text(self, element, tag_name, default=''):
-        """Helper to safely get text from XML element"""
-        child = element.find(f'.//{tag_name}')
-        return child.text if child is not None else default
+
+    def _get_text(self, element, tag_path, ns, attribute=None, default=''):
+        """Helper to safely get text from XML element or its attribute"""
+        try:
+            # Add namespace prefix to each tag in the path
+            ns_path = '/'.join(f'ns:{tag}' for tag in tag_path.split('/'))
+            child = element.find(f'.//{ns_path}', ns)
+            if child is not None:
+                if attribute:
+                    return child.get(attribute, default)
+                return child.text or default
+            return default
+        except Exception as e:
+            print(f"Error getting text for {tag_path}: {str(e)}")
+            return default

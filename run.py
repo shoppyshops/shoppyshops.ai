@@ -89,13 +89,13 @@ class ShoppyShops:
         # Filter for orders that are:
         # 1. Not fulfilled
         # 2. Not already ordered from eBay
-        # 3. Order number >= 1102
+        # 3. Order number >= 1001
         unfulfilled_orders = []
         for order in orders:
             # Extract order number from name (e.g., "#1102" -> 1102)
             try:
                 order_num = int(order.name.replace('#', ''))
-                if order_num >= 1102:  # Only process orders >= #1102
+                if order_num >= 1001:  # Only process orders >= #1001
                     fulfillments = await self.get_order_fulfillments(order.order_id)
                     if not fulfillments and "Ordered" not in order.tags:
                         unfulfilled_orders.append(order)

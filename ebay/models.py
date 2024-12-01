@@ -2,29 +2,6 @@ from django.db import models
 from django.utils import timezone
 from shopify.models import ShopifyOrder
 
-class EbayOAuthCredentials(models.Model):
-    app_id = models.CharField(max_length=100)
-    dev_id = models.CharField(max_length=100)
-    cert_id = models.CharField(max_length=100)
-    access_token = models.TextField(null=True, blank=True)
-    refresh_token = models.TextField(null=True, blank=True)
-    expires_at = models.DateTimeField(null=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-    environment = models.CharField(
-        max_length=10,
-        choices=[('sandbox', 'Sandbox'), ('production', 'Production')],
-        default='sandbox'
-    )
-
-    @property
-    def is_expired(self) -> bool:
-        if not self.expires_at:
-            return True
-        return timezone.now() >= self.expires_at
-
-    class Meta:
-        verbose_name_plural = "Ebay OAuth Credentials"
 
 class EbayOrder(models.Model):
     """Represents an eBay order"""
@@ -53,6 +30,7 @@ class EbayOrder(models.Model):
         
     def __str__(self):
         return f"eBay Order {self.order_id}"
+
 
 class EbayOrderItem(models.Model):
     """Represents an item within an eBay order"""

@@ -1,0 +1,77 @@
+Locating inifile...
+
+[Mon Dec  2 19:49:11 2024] Running: py.test tests/test_meta.py
+============================= test session starts ==============================
+platform linux -- Python 3.10.12, pytest-8.3.4, pluggy-1.5.0
+rootdir: /home/daryl/repos/shoppyshops.ai
+configfile: pyproject.toml
+plugins: anyio-4.6.2.post1
+collected 4 items
+
+tests/test_meta.py ..FF                                                  [100%]
+
+=================================== FAILURES ===================================
+_________________________ test_validate_token_success __________________________
+
+    def test_validate_token_success():
+        """Test successful token validation"""
+        with patch.dict(os.environ, {
+            'META_APP_ID': 'test_id',
+            'META_APP_SECRET': 'test_secret',
+            'META_ACCESS_TOKEN': 'test_token'
+        }):
+            meta = Meta()
+    
+            # Mock the httpx client response
+            mock_response = {
+                'data': {
+                    'is_valid': True,
+                    'app_id': 'test_id',
+                    'expires_at': 1234567890,
+                    'scopes': ['email', 'public_profile']
+                }
+            }
+    
+            with patch.object(meta.client, 'get') as mock_get:
+                mock_get.return_value.json.return_value = mock_response
+                mock_get.return_value.raise_for_status = lambda: None
+    
+>               result = meta.validate_token()
+E               AttributeError: 'Meta' object has no attribute 'validate_token'
+
+tests/test_meta.py:48: AttributeError
+_________________________ test_validate_token_invalid __________________________
+
+    def test_validate_token_invalid():
+        """Test invalid token validation"""
+        with patch.dict(os.environ, {
+            'META_APP_ID': 'test_id',
+            'META_APP_SECRET': 'test_secret',
+            'META_ACCESS_TOKEN': 'test_token'
+        }):
+            meta = Meta()
+    
+            mock_response = {
+                'data': {
+                    'is_valid': False,
+                    'error': {
+                        'code': 190,
+                        'message': 'Invalid OAuth access token.'
+                    }
+                }
+            }
+    
+            with patch.object(meta.client, 'get') as mock_get:
+                mock_get.return_value.json.return_value = mock_response
+                mock_get.return_value.raise_for_status = lambda: None
+    
+                with pytest.raises(ValueError, match="Invalid access token"):
+>                   meta.validate_token()
+E                   AttributeError: 'Meta' object has no attribute 'validate_token'
+
+tests/test_meta.py:82: AttributeError
+=========================== short test summary info ============================
+FAILED tests/test_meta.py::test_validate_token_success - AttributeError: 'Met...
+FAILED tests/test_meta.py::test_validate_token_invalid - AttributeError: 'Met...
+========================= 2 failed, 2 passed in 0.24s ==========================
+

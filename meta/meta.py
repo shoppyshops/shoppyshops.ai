@@ -1,6 +1,7 @@
 import os
 from typing import Optional, Dict, Any, List
 import httpx
+from datetime import datetime, timedelta
 
 class Meta:
     """
@@ -264,3 +265,156 @@ class Meta:
         )
         response.raise_for_status()
         return response.json().get('data', [])
+
+    def get_business_ad_accounts(
+        self,
+        business_id: str
+    ) -> List[Dict[str, Any]]:
+        """
+        Get all ad accounts owned by a specific business.
+        
+        Args:
+            business_id: The ID of the business/portfolio
+            
+        Returns:
+            List of ad accounts with their details
+            
+        Raises:
+            httpx.HTTPError: If the API request fails
+        """
+        response = self.client.get(
+            f"{self.base_url}/{business_id}/owned_ad_accounts",
+            params={
+                'access_token': self.access_token,
+                'fields': 'id,name,account_status,currency,timezone_name,amount_spent,balance'
+            }
+        )
+        response.raise_for_status()
+        return response.json().get('data', [])
+
+    def get_business_spending_summary(
+        self,
+        business_id: str,
+        start_date: str = None,
+        end_date: str = None
+    ) -> Dict[str, Any]:
+        """
+        Get aggregated spending data for all ad accounts under a business.
+        
+        Args:
+            business_id: The ID of the business/portfolio
+            start_date: Optional start date (YYYY-MM-DD)
+            end_date: Optional end date (YYYY-MM-DD)
+            
+        Returns:
+            Dict containing:
+            - total_spend
+            - account_count
+            - active_account_count
+            - accounts: List of account summaries
+            
+        Raises:
+            httpx.HTTPError: If the API request fails
+        """
+        accounts = self.get_business_ad_accounts(business_id)
+        
+        # Initialize summary
+        summary = {
+            'total_spend': 0.0,
+            'account_count': len(accounts),
+            'active_account_count': 0,
+            'accounts': []
+        }
+        
+        for account in accounts:
+            account_id = account['id']
+            
+            # Get account insights
+            insights = self.get_account_insights(
+                account_id,
+                date_preset='last_90d' if not start_date else None,
+                fields=['spend', 'account_currency']
+            )
+            
+            account_summary = {
+                'id': account_id,
+                'name': account['name'],
+                'status': account['account_status'],
+                'currency': account['currency'],
+                'spend': sum(float(insight['spend']) for insight in insights) if insights else 0.0
+            }
+            
+            if account['account_status'] == 1:  # Active account
+                summary['active_account_count'] += 1
+            
+            summary['total_spend'] += account_summary['spend']
+            summary['accounts'].append(account_summary)
+        
+        return summary
+
+    def get_portfolio_daily_metrics(
+        self,
+        business_id: str,
+        days: int = 7,
+        include_disabled: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Get daily spend and budget data for all accounts in a business portfolio.
+        
+        Args:
+            business_id: The ID of the business/portfolio
+            days: Number of days to look back
+            include_disabled: Whether to include disabled accounts
+            
+        Returns:
+            Dict containing:
+            - daily_spend: Dict of dates with spend per account
+            - daily_budget: Dict of dates with budget per account
+            - current_budgets: Dict of current daily budgets per account
+            - portfolio_total_budget: Total current daily budget across portfolio (active accounts only)
+            - account_statuses: Dict of account statuses
+        """
+        accounts = self.get_business_ad_accounts(business_id)
+        end_date = datetime.now().strftime('%Y-%m-%d')
+        start_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+        
+        result = {
+            'daily_spend': {},
+            'daily_budget': {},
+            'current_budgets': {},
+            'portfolio_total_budget': 0.0,
+            'account_statuses': {}
+        }
+        
+        for account in accounts:
+            account_id = account['id']
+            account_name = account['name']
+            account_status = account['account_status']
+            
+            result['account_statuses'][account_name] = account_status
+            
+            # Get daily spending (include all accounts for historical data if requested)
+            if include_disabled or account_status == 1:
+                daily_spend = self.get_daily_spending(account_id, start_date, end_date)
+                for day in daily_spend:
+                    date = day['date_start']
+                    if date not in result['daily_spend']:
+                        result['daily_spend'][date] = {}
+                    result['daily_spend'][date][account_name] = float(day['spend'])
+            
+            # Get campaign budgets for the account
+            campaigns = self.get_campaign_budgets(account_id)
+            current_account_budget = 0.0
+            
+            for campaign in campaigns:
+                if campaign.get('effective_status') == 'ACTIVE':
+                    daily_budget = float(campaign.get('daily_budget', 0)) / 100
+                    current_account_budget += daily_budget
+            
+            result['current_budgets'][account_name] = current_account_budget
+            
+            # Only add to portfolio total if account is active
+            if account_status == 1:
+                result['portfolio_total_budget'] += current_account_budget
+        
+        return result

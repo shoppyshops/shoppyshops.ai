@@ -114,8 +114,23 @@ async def generate_profit_report(days_back=180):
     
     # Calculate total revenue for all orders, regardless of eBay links
     total_all_revenue = Decimal('0.00')
+    unfulfilled_revenue = Decimal('0.00')
     async for shopify_order in shopify_orders.aiterator():
         total_all_revenue += shopify_order.total_price
+        if not shopify_order.ebay_orders.exists():
+            unfulfilled_revenue += shopify_order.total_price
+    
+    # Calculate predicted costs for unfulfilled orders
+    unfulfilled_orders = total_orders - orders_with_ebay
+    if orders_with_ebay > 0 and unfulfilled_orders > 0:
+        # Use averages from fulfilled orders to predict costs
+        predicted_item_cost = (total_cost / orders_with_ebay) * unfulfilled_orders
+        # Use actual shipping instead of charged shipping for prediction
+        predicted_shipping = (total_actual_shipping / orders_with_ebay) * unfulfilled_orders
+        predicted_total_cost = predicted_item_cost + predicted_shipping
+        predicted_profit = unfulfilled_revenue - predicted_total_cost
+    else:
+        predicted_item_cost = predicted_shipping = predicted_total_cost = predicted_profit = Decimal('0.00')
     
     # Print summary
     print("\nSummary Report")
@@ -137,6 +152,18 @@ async def generate_profit_report(days_back=180):
         print(f"Overall Margin: {(total_profit / total_revenue * 100):.1f}% (profit/revenue)")
     else:
         print("Overall Margin: N/A (no fulfilled orders)")
+    
+    print("\nUnfulfilled Orders Prediction:")
+    print(f"Unfulfilled Orders: {unfulfilled_orders}")
+    print(f"Unfulfilled Revenue: ${unfulfilled_revenue:.2f}")
+    print(f"Predicted Item Cost: ${predicted_item_cost:.2f}")
+    print(f"Predicted Shipping: ${predicted_shipping:.2f}")
+    print(f"Predicted Total Cost: ${predicted_total_cost:.2f}")
+    print(f"Predicted Profit: ${predicted_profit:.2f}")
+    if unfulfilled_revenue > 0:
+        print(f"Predicted Margin: {(predicted_profit / unfulfilled_revenue * 100):.1f}%")
+    else:
+        print("Predicted Margin: N/A (no unfulfilled revenue)")
     
     print("\nAverages (for orders with eBay links):")
     print(f"Average Revenue: ${avg_revenue:.2f}")

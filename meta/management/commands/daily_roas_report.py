@@ -29,31 +29,37 @@ class Command(BaseCommand):
             for x in range((end_date - start_date).days + 1)
         ]
 
+        # Calculate total width needed
+        total_width = 225  # Exact width needed
+
         self.stdout.write(f"\nDaily Performance Report ({start_date} to {end_date})")
-        self.stdout.write("=" * 200)
+        self.stdout.write("=" * total_width)
         
-        # Header with adjusted widths
+        # Header with exact alignments
         self.stdout.write(
             f"{'Date':<12} "
-            f"{'Ord':>4} "
-            f"{'Unf':>4} "
-            f"{'Revenue':>14} "
+            f"{'Ord':>3} "
+            f"{'Unf':>3} "
+            f"{'Revenue':>14} "  # Removed $ from data, so header needs to match
             f"{'Cost':>14} "
-            f"{'Est Cost*':>14} "
+            f"{'Est*':>14} "
             f"{'Ad Spend':>14} "
             f"{'Net Pre':>14} "
             f"{'Net Post':>14} "
             f"{'Est Post*':>14} "
-            f"{'ROAS':>7} "
-            f"{'BROAS':>7} "
-            f"{'BROAS*':>7} "
-            f"{'Cost%':>7} "
-            f"{'Ad%':>7} "
-            f"{'Margin%':>8} "
+            f"{'ROAS':>6} "
+            f"{'BROAS':>6} "
+            f"{'BR*':>6} "
+            f"{'Cost%':>6} "
+            f"{'Est%':>6} "
+            f"{'Ad%':>6} "
+            f"{'Mrgn%':>6} "
+            f"{'Est%':>6} "
             f"{'AOV':>12} "
-            f"{'AFC':>12}"
+            f"{'AFC':>12} "
+            f"{'AFC*':>12}"
         )
-        self.stdout.write("-" * 200)
+        self.stdout.write("-" * total_width)
 
         totals = {
             'orders': 0,
@@ -119,7 +125,7 @@ class Command(BaseCommand):
                 total=Sum('spend')
             )['total'] or 0
 
-            # Calculate actual metrics
+            # Calculate metrics
             net_before_ads = daily_revenue - daily_actual_cost
             net_after_ads = net_before_ads - daily_ad_spend
             roas = (daily_revenue / daily_ad_spend) if daily_ad_spend > 0 else 0
@@ -130,32 +136,39 @@ class Command(BaseCommand):
             est_net_after_ads = est_net_before_ads - daily_ad_spend
             est_broas = (est_net_before_ads / daily_ad_spend) if daily_ad_spend > 0 else 0
 
-            # Calculate percentages
+            # Calculate percentages (actual and estimated)
             cost_percentage = (daily_actual_cost / daily_revenue * 100) if daily_revenue > 0 else 0
+            est_cost_percentage = ((daily_actual_cost + daily_estimated_cost) / daily_revenue * 100) if daily_revenue > 0 else 0
             ad_percentage = (daily_ad_spend / daily_revenue * 100) if daily_revenue > 0 else 0
             margin_percentage = (net_after_ads / daily_revenue * 100) if daily_revenue > 0 else 0
+            est_margin_percentage = (est_net_after_ads / daily_revenue * 100) if daily_revenue > 0 else 0
+
+            # Calculate averages
             aov = (daily_revenue / daily_orders) if daily_orders > 0 else 0
 
             # Print daily row
             self.stdout.write(
                 f"{current_date.strftime('%Y-%m-%d'):<12} "
-                f"{daily_orders:>4} "
-                f"{unfulfilled_orders:>4} "
-                f"${daily_revenue:>13,.2f} "
-                f"${daily_actual_cost:>13,.2f} "
-                f"${daily_estimated_cost:>13,.2f}* "
-                f"${daily_ad_spend:>13,.2f} "
-                f"${net_before_ads:>13,.2f} "
-                f"${net_after_ads:>13,.2f} "
-                f"${est_net_after_ads:>13,.2f}* "
+                f"{daily_orders:>3} "
+                f"{unfulfilled_orders:>3} "
+                f"{daily_revenue:>14,.2f} "  # Removed $
+                f"{daily_actual_cost:>14,.2f} "
+                f"{daily_estimated_cost:>14,.2f}* "
+                f"{daily_ad_spend:>14,.2f} "
+                f"{net_before_ads:>14,.2f} "
+                f"{net_after_ads:>14,.2f} "
+                f"{est_net_after_ads:>14,.2f}* "
                 f"{roas:>6.1f}x "
                 f"{broas:>6.1f}x "
                 f"{est_broas:>6.1f}x* "
                 f"{cost_percentage:>6.1f}% "
+                f"{est_cost_percentage:>6.1f}%* "
                 f"{ad_percentage:>6.1f}% "
-                f"{margin_percentage:>7.1f}% "
-                f"${aov:>11,.2f} "
-                f"${daily_afc:>11,.2f}"
+                f"{margin_percentage:>6.1f}% "
+                f"{est_margin_percentage:>6.1f}%* "
+                f"{aov:>12,.2f} "
+                f"{daily_afc:>12,.2f} "
+                f"{avg_fulfillment_cost:>12,.2f}*"
             )
 
             # Update totals
@@ -169,7 +182,7 @@ class Command(BaseCommand):
             current_date += timedelta(days=1)
 
         # Calculate overall metrics
-        self.stdout.write("=" * 200)
+        self.stdout.write("=" * total_width)
         overall_roas = (totals['revenue'] / totals['ad_spend']) if totals['ad_spend'] > 0 else 0
         overall_broas = (totals['net_before_ads'] / totals['ad_spend']) if totals['ad_spend'] > 0 else 0
         overall_cost_pct = (totals['cost'] / totals['revenue'] * 100) if totals['revenue'] > 0 else 0
@@ -188,24 +201,34 @@ class Command(BaseCommand):
         total_est_broas = (total_est_net_before / totals['ad_spend']) if totals['ad_spend'] > 0 else 0
         total_afc = (totals['cost'] / (totals['orders'] - total_unfulfilled)) if (totals['orders'] - total_unfulfilled) > 0 else avg_fulfillment_cost
 
+        # Calculate totals for estimates
+        total_cost_pct = (totals['cost'] / totals['revenue'] * 100) if totals['revenue'] > 0 else 0
+        est_total_cost_pct = ((totals['cost'] + total_estimated_cost) / totals['revenue'] * 100) if totals['revenue'] > 0 else 0
+        total_margin_pct = (totals['net_after_ads'] / totals['revenue'] * 100) if totals['revenue'] > 0 else 0
+        est_total_margin_pct = (total_est_net_after / totals['revenue'] * 100) if totals['revenue'] > 0 else 0
+
         # Print totals line with all metrics
+        self.stdout.write("=" * total_width)
         self.stdout.write(
             f"{'TOTAL':12} "
-            f"{totals['orders']:>4} "
-            f"{total_unfulfilled:>4} "
+            f"{totals['orders']:>3} "
+            f"{total_unfulfilled:>3} "
             f"${totals['revenue']:>13,.2f} "
-            f"${totals['cost']:>13,.2f} "
-            f"${total_estimated_cost:>13,.2f}* "
-            f"${totals['ad_spend']:>13,.2f} "
-            f"${totals['net_before_ads']:>13,.2f} "
-            f"${totals['net_after_ads']:>13,.2f} "
-            f"${total_est_net_after:>13,.2f}* "
+            f"${totals['cost']:>14,.2f} "
+            f"${total_estimated_cost:>14,.2f}* "
+            f"${totals['ad_spend']:>14,.2f} "
+            f"${totals['net_before_ads']:>14,.2f} "
+            f"${totals['net_after_ads']:>14,.2f} "
+            f"${total_est_net_after:>14,.2f}* "
             f"{overall_roas:>6.1f}x "
             f"{overall_broas:>6.1f}x "
             f"{total_est_broas:>6.1f}x* "
             f"{overall_cost_pct:>6.1f}% "
+            f"{est_total_cost_pct:>6.1f}%* "
             f"{overall_ad_pct:>6.1f}% "
-            f"{overall_margin:>7.1f}% "
-            f"${overall_aov:>11,.2f} "
-            f"${total_afc:>11,.2f}"
+            f"{overall_margin:>6.1f}% "
+            f"{est_total_margin_pct:>6.1f}%* "
+            f"${overall_aov:>12,.2f} "
+            f"${total_afc:>12,.2f} "
+            f"${avg_fulfillment_cost:>12,.2f}*"
         ) 

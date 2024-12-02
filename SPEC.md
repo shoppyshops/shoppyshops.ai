@@ -1,21 +1,28 @@
 # Meta Marketing API Integration Specification
 
 ## Purpose
-Create a Python class to retrieve advertising spend and performance data from Meta's Marketing API for financial reporting.
+Create a system to track Meta ad spend, correlate with Shopify orders, and attribute revenue through eBay fulfillments.
 
 ## Core Features
-1. Authentication and token validation (✓ completed)
-2. Account Information (✓ completed)
-   - Get ad account details
-   - List ad accounts
-3. Financial Reporting
-   - Get account spending
-   - Get campaign insights
-   - Get account performance metrics
-   - Export financial data for reporting
+1. Meta API Integration (✓ completed)
+   - Authentication and token validation
+   - Account information retrieval
+   - Campaign insights and budgets
 
-## Technical Requirements
-- Python 3.8+
-- Environment variables for authentication
-- Proper error handling
-- Unit tests for all functionality 
+2. Financial Reporting (✓ completed)
+   - Daily spend tracking
+   - Campaign performance metrics
+   - Portfolio-level aggregation
+
+## Phase 2: Data Storage (Current Focus)
+
+### Objective
+Store Meta ad spend data and enable basic reporting through Django models.
+
+### Models
+
+1. Meta Ad Data
+
+## Data Models
+
+### Meta Ad Data

@@ -42,6 +42,7 @@ INSTALLED_APPS = [
     'livereload',
     'shopify',
     'ebay',
+    'meta',
 ]
 
 MIDDLEWARE = [

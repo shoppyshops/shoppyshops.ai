@@ -368,8 +368,16 @@ class Meta:
             
         Returns:
             Dict containing:
-            - daily_spend: Dict of dates with spend per account
-            - daily_budget: Dict of dates with budget per account
+            - daily_metrics: Dict of dates with spend and budget per account
+              Format: {
+                date: {
+                    account_name: {
+                        'spend': float,
+                        'budget': float,
+                        'utilization': float  # spend as percentage of budget
+                    }
+                }
+              }
             - current_budgets: Dict of current daily budgets per account
             - portfolio_total_budget: Total current daily budget across portfolio (active accounts only)
             - account_statuses: Dict of account statuses
@@ -379,8 +387,7 @@ class Meta:
         start_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
         
         result = {
-            'daily_spend': {},
-            'daily_budget': {},
+            'daily_metrics': {},
             'current_budgets': {},
             'portfolio_total_budget': 0.0,
             'account_statuses': {}
@@ -393,28 +400,35 @@ class Meta:
             
             result['account_statuses'][account_name] = account_status
             
-            # Get daily spending (include all accounts for historical data if requested)
             if include_disabled or account_status == 1:
+                # Get daily spending
                 daily_spend = self.get_daily_spending(account_id, start_date, end_date)
+                
+                # Get campaign budgets for each day
+                campaigns = self.get_campaign_budgets(account_id)
+                current_account_budget = 0.0
+                
+                for campaign in campaigns:
+                    if campaign.get('effective_status') == 'ACTIVE':
+                        daily_budget = float(campaign.get('daily_budget', 0)) / 100
+                        current_account_budget += daily_budget
+                
+                # Record daily metrics
                 for day in daily_spend:
                     date = day['date_start']
-                    if date not in result['daily_spend']:
-                        result['daily_spend'][date] = {}
-                    result['daily_spend'][date][account_name] = float(day['spend'])
-            
-            # Get campaign budgets for the account
-            campaigns = self.get_campaign_budgets(account_id)
-            current_account_budget = 0.0
-            
-            for campaign in campaigns:
-                if campaign.get('effective_status') == 'ACTIVE':
-                    daily_budget = float(campaign.get('daily_budget', 0)) / 100
-                    current_account_budget += daily_budget
-            
-            result['current_budgets'][account_name] = current_account_budget
-            
-            # Only add to portfolio total if account is active
-            if account_status == 1:
-                result['portfolio_total_budget'] += current_account_budget
+                    if date not in result['daily_metrics']:
+                        result['daily_metrics'][date] = {}
+                    
+                    spend = float(day['spend'])
+                    result['daily_metrics'][date][account_name] = {
+                        'spend': spend,
+                        'budget': current_account_budget,
+                        'utilization': (spend / current_account_budget * 100) if current_account_budget > 0 else 0
+                    }
+                
+                result['current_budgets'][account_name] = current_account_budget
+                
+                if account_status == 1:
+                    result['portfolio_total_budget'] += current_account_budget
         
         return result

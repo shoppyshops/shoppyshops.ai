@@ -432,3 +432,234 @@ class Meta:
                     result['portfolio_total_budget'] += current_account_budget
         
         return result
+
+    def get_portfolio_roas_breakdown(
+        self,
+        business_id: str,
+        start_date: str = None,
+        end_date: str = None,
+        days: int = 7
+    ) -> Dict[str, Any]:
+        """
+        Get ROAS breakdown for all levels across the portfolio.
+        
+        Args:
+            business_id: The ID of the business/portfolio
+            start_date: Start date in YYYY-MM-DD format
+            end_date: End date in YYYY-MM-DD format
+            days: Number of days to look back (used if start_date/end_date not provided)
+        """
+        if not start_date or not end_date:
+            end_date = datetime.now().strftime('%Y-%m-%d')
+            start_date = (datetime.now() - timedelta(days=days-1)).strftime('%Y-%m-%d')
+        
+        result = {
+            'portfolio_summary': {
+                'total_spend': 0,
+                'total_revenue': 0,
+                'total_purchases': 0,
+                'portfolio_roas': 0,
+                'total_impressions': 0,
+                'total_clicks': 0,
+                'average_ctr': 0,
+                'average_cpc': 0
+            },
+            'accounts': []
+        }
+        
+        accounts = self.get_business_ad_accounts(business_id)
+        
+        for account in accounts:
+            if account['account_status'] != 1:  # Skip inactive accounts
+                continue
+            
+            account_id = account['id']
+            account_metrics = {
+                'account_id': account_id,
+                'account_name': account['name'],
+                'metrics': {
+                    'spend': 0,
+                    'revenue': 0,
+                    'purchases': 0,
+                    'roas': 0,
+                    'impressions': 0,
+                    'clicks': 0,
+                    'ctr': 0,
+                    'cpc': 0
+                },
+                'campaigns': []
+            }
+            
+            # Get account level insights
+            try:
+                insights_fields = [
+                    'spend',
+                    'actions',
+                    'action_values',
+                    'impressions',
+                    'clicks',
+                    'conversion_values',
+                    'conversions'
+                ]
+                
+                # Use time_range instead of date_preset
+                params = {
+                    'access_token': self.access_token,
+                    'fields': ','.join(insights_fields),
+                    'time_range': {
+                        'since': start_date,
+                        'until': end_date
+                    }
+                }
+                
+                response = self.client.get(
+                    f"{self.base_url}/{account_id}/insights",
+                    params=params
+                )
+                response.raise_for_status()
+                account_insights = response.json().get('data', [])
+                
+                if account_insights:
+                    insight = account_insights[0]
+                    spend = float(insight.get('spend', 0))
+                    impressions = int(insight.get('impressions', 0))
+                    clicks = int(insight.get('clicks', 0))
+                    
+                    # Process actions to get purchases and revenue
+                    actions = insight.get('actions', [])
+                    action_values = insight.get('action_values', [])
+                    purchases = 0
+                    revenue = 0.0
+                    
+                    # Look for purchase data in actions
+                    for action in actions:
+                        if action.get('action_type') in ['purchase', 'offsite_conversion.purchase']:
+                            purchases += int(action.get('value', 0))
+                    
+                    # Look for revenue data in action_values
+                    for value in action_values:
+                        if value.get('action_type') in ['purchase', 'offsite_conversion.purchase']:
+                            revenue += float(value.get('value', 0))
+                    
+                    # Fallback to conversion_values if available
+                    if revenue == 0 and insight.get('conversion_values'):
+                        revenue = float(insight.get('conversion_values', 0))
+                    
+                    metrics = {
+                        'spend': spend,
+                        'revenue': revenue,
+                        'purchases': purchases,
+                        'roas': revenue / spend if spend > 0 else 0,
+                        'impressions': impressions,
+                        'clicks': clicks,
+                        'ctr': clicks / impressions * 100 if impressions > 0 else 0,
+                        'cpc': spend / clicks if clicks > 0 else 0
+                    }
+                    
+                    account_metrics['metrics'] = metrics
+                    
+                    # Add to portfolio totals
+                    result['portfolio_summary']['total_spend'] += spend
+                    result['portfolio_summary']['total_revenue'] += revenue
+                    result['portfolio_summary']['total_purchases'] += purchases
+                    result['portfolio_summary']['total_impressions'] += impressions
+                    result['portfolio_summary']['total_clicks'] += clicks
+                
+                # Get campaign level data
+                campaigns_response = self.client.get(
+                    f"{self.base_url}/{account_id}/campaigns",
+                    params={
+                        'access_token': self.access_token,
+                        'fields': 'id,name,status',
+                        'effective_status': ['ACTIVE', 'PAUSED']
+                    }
+                )
+                campaigns = campaigns_response.json().get('data', [])
+                
+                for campaign in campaigns:
+                    campaign_id = campaign['id']
+                    campaign_metrics = {
+                        'campaign_id': campaign_id,
+                        'campaign_name': campaign['name'],
+                        'status': campaign['status'],
+                        'metrics': {}
+                    }
+                    
+                    # Get campaign insights
+                    try:
+                        campaign_insights = self.client.get(
+                            f"{self.base_url}/{campaign_id}/insights",
+                            params={
+                                'access_token': self.access_token,
+                                'fields': ','.join(insights_fields),
+                                'time_range': {'since': start_date, 'until': end_date}
+                            }
+                        ).json().get('data', [])
+                        
+                        if campaign_insights:
+                            campaign_metrics['metrics'] = self._process_insights_with_actions(campaign_insights[0])
+                    except Exception as e:
+                        print(f"Warning: Could not get insights for campaign {campaign_id}: {str(e)}")
+                    
+                    account_metrics['campaigns'].append(campaign_metrics)
+                
+            except Exception as e:
+                print(f"Warning: Could not get complete data for account {account_id}: {str(e)}")
+            
+            result['accounts'].append(account_metrics)
+        
+        # Calculate portfolio level metrics
+        if result['portfolio_summary']['total_spend'] > 0:
+            result['portfolio_summary']['portfolio_roas'] = (
+                result['portfolio_summary']['total_revenue'] / 
+                result['portfolio_summary']['total_spend']
+            )
+            result['portfolio_summary']['average_ctr'] = (
+                result['portfolio_summary']['total_clicks'] / 
+                result['portfolio_summary']['total_impressions'] * 100
+                if result['portfolio_summary']['total_impressions'] > 0 else 0
+            )
+            result['portfolio_summary']['average_cpc'] = (
+                result['portfolio_summary']['total_spend'] / 
+                result['portfolio_summary']['total_clicks']
+                if result['portfolio_summary']['total_clicks'] > 0 else 0
+            )
+        
+        return result
+
+    def _process_insights_with_actions(self, insights: Dict[str, Any]) -> Dict[str, Any]:
+        """Helper method to process insights data including actions"""
+        spend = float(insights.get('spend', 0))
+        impressions = int(insights.get('impressions', 0))
+        clicks = int(insights.get('clicks', 0))
+        
+        # Process actions to get purchases and revenue
+        actions = insights.get('actions', [])
+        action_values = insights.get('action_values', [])
+        purchases = 0
+        revenue = 0.0
+        
+        # Look for purchase data in actions
+        for action in actions:
+            if action.get('action_type') in ['purchase', 'offsite_conversion.purchase']:
+                purchases += int(action.get('value', 0))
+        
+        # Look for revenue data in action_values
+        for value in action_values:
+            if value.get('action_type') in ['purchase', 'offsite_conversion.purchase']:
+                revenue += float(value.get('value', 0))
+                
+        # Fallback to conversion_values if available
+        if revenue == 0 and insights.get('conversion_values'):
+            revenue = float(insights.get('conversion_values', 0))
+        
+        return {
+            'spend': spend,
+            'revenue': revenue,
+            'purchases': purchases,
+            'roas': revenue / spend if spend > 0 else 0,
+            'impressions': impressions,
+            'clicks': clicks,
+            'ctr': clicks / impressions * 100 if impressions > 0 else 0,
+            'cpc': spend / clicks if clicks > 0 else 0
+        }
